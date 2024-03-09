@@ -1,4 +1,4 @@
-module go.ligato.io/cn-infra/v2
+module github.com/kipling-engineering/kipling-cn-infra
 
 go 1.17
 
