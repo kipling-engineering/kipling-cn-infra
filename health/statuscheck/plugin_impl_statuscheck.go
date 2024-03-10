@@ -175,11 +175,8 @@ func (p *Plugin) reportStateChange(pluginName infra.PluginName, state PluginStat
 		if lastError != nil && lastError.Error() == stat.Error {
 			changed = false
 		}
-		if !p.ifHasUpdate {
-			changed = false
-		}
 	}
-	if !changed {
+	if !changed && !p.ifHasUpdate {
 		return
 	}
 
