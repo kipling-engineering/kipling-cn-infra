@@ -278,6 +278,7 @@ func (p *Plugin) publishAllData() {
 	// append eth0's status and IP
 	as := p.agentStat
 	for _, intf := range p.interfaceStat.Interfaces {
+		p.Log.Debugf("Considering appending data for : %s", intf.InternalName)
 		if intf.InternalName == "host-eth0" {
 			as.InterfaceStats.Interfaces = append(as.InterfaceStats.Interfaces, &status.InterfaceStats_Interface{
 				InternalName: intf.InternalName,
@@ -286,6 +287,7 @@ func (p *Plugin) publishAllData() {
 			})
 		}
 	}
+	p.agentStat = as
 	p.publishAgentData()
 	for name, s := range p.pluginStat {
 		p.publishPluginData(infra.PluginName(name), s)
