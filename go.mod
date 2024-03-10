@@ -58,6 +58,5 @@ require (
 )
 
 replace (
-	go.ligato.io/cn-infra => ./
 	go.ligato.io/cn-infra/v2 => ./
 )
