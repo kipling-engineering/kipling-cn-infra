@@ -41,7 +41,8 @@ type Plugin struct {
 
 	access sync.Mutex // lock for the Plugin data
 
-	agentStat     *status.AgentStatus             // overall agent status
+	agentStat     *status.AgentStatus // overall agent status
+	ifHasUpdate   bool
 	interfaceStat *status.InterfaceStats          // interfaces' overall status
 	pluginStat    map[string]*status.PluginStatus // plugin's status
 	pluginProbe   map[string]PluginStateProbe     // registered status probes
@@ -174,6 +175,9 @@ func (p *Plugin) reportStateChange(pluginName infra.PluginName, state PluginStat
 		if lastError != nil && lastError.Error() == stat.Error {
 			changed = false
 		}
+		if !p.ifHasUpdate {
+			changed = false
+		}
 	}
 	if !changed {
 		return
@@ -232,6 +236,7 @@ func (p *Plugin) reportStateChange(pluginName infra.PluginName, state PluginStat
 			}
 		}
 	}
+	p.ifHasUpdate = false
 	p.publishAgentData()
 }
 
@@ -261,10 +266,12 @@ func (p *Plugin) reportInterfaceStateChange(data *status.InterfaceStats_Interfac
 		// new entry
 		p.interfaceStat.Interfaces = append(p.interfaceStat.Interfaces, data)
 		p.Log.Debugf("Global interface state data added: %v", data)
+		p.ifHasUpdate = true
 	} else if existingData.Index != data.Index || existingData.Status != data.Status || existingData.MacAddress != data.MacAddress {
 		// updated entry - update only if state really changed
 		p.interfaceStat.Interfaces = append(append(p.interfaceStat.Interfaces[:ifIndex], data), p.interfaceStat.Interfaces[ifIndex+1:]...)
 		p.Log.Debugf("Global interface state data updated: %v", data)
+		p.ifHasUpdate = true
 	}
 }
 
