@@ -216,15 +216,21 @@ func (p *Plugin) reportStateChange(pluginName infra.PluginName, state PluginStat
 			Error: lastErr,
 		})
 	}
+	p.Log.Debugf("p.interfaceStat.Interfaces : %v", p.interfaceStat.Interfaces)
+
 	// append host-eth0's status and IP
 	for _, intf := range p.interfaceStat.Interfaces {
 		p.Log.Debugf("Considering appending data for : %s", intf.InternalName)
+		interfaces := []*status.InterfaceStats_Interface{}
 		if intf.InternalName == "host-eth0" {
-			p.agentStat.InterfaceStats.Interfaces = append(p.agentStat.InterfaceStats.Interfaces, &status.InterfaceStats_Interface{
+			interfaces = append(interfaces, &status.InterfaceStats_Interface{
 				InternalName: intf.InternalName,
 				Status:       intf.Status,
 				IpAddress:    intf.IpAddress,
 			})
+			p.agentStat.InterfaceStats = &status.InterfaceStats{
+				Interfaces: interfaces,
+			}
 		}
 	}
 	p.publishAgentData()
