@@ -146,14 +146,13 @@ func (p *Plugin) ReportStateChange(pluginName infra.PluginName, state PluginStat
 // ReportStateChangeWithMeta can be used to report a change in the status of a previously registered plugin and report
 // the specific metadata state
 func (p *Plugin) ReportStateChangeWithMeta(pluginName infra.PluginName, state PluginState, lastError error, meta proto.Message) {
-	p.reportStateChange(pluginName, state, lastError)
-
 	switch data := meta.(type) {
 	case *status.InterfaceStats_Interface:
 		p.reportInterfaceStateChange(data)
 	default:
 		p.Log.Debug("Unknown type of status metadata")
 	}
+	p.reportStateChange(pluginName, state, lastError)
 }
 
 func (p *Plugin) reportStateChange(pluginName infra.PluginName, state PluginState, lastError error) {
@@ -217,6 +216,17 @@ func (p *Plugin) reportStateChange(pluginName infra.PluginName, state PluginStat
 			Error: lastErr,
 		})
 	}
+	// append host-eth0's status and IP
+	for _, intf := range p.interfaceStat.Interfaces {
+		p.Log.Debugf("Considering appending data for : %s", intf.InternalName)
+		if intf.InternalName == "host-eth0" {
+			p.agentStat.InterfaceStats.Interfaces = append(p.agentStat.InterfaceStats.Interfaces, &status.InterfaceStats_Interface{
+				InternalName: intf.InternalName,
+				Status:       intf.Status,
+				IpAddress:    intf.IpAddress,
+			})
+		}
+	}
 	p.publishAgentData()
 }
 
@@ -275,19 +285,7 @@ func (p *Plugin) publishPluginData(pluginName infra.PluginName, pluginStat *stat
 func (p *Plugin) publishAllData() {
 	p.access.Lock()
 	defer p.access.Unlock()
-	// append eth0's status and IP
-	as := p.agentStat
-	for _, intf := range p.interfaceStat.Interfaces {
-		p.Log.Debugf("Considering appending data for : %s", intf.InternalName)
-		if intf.InternalName == "host-eth0" {
-			as.InterfaceStats.Interfaces = append(as.InterfaceStats.Interfaces, &status.InterfaceStats_Interface{
-				InternalName: intf.InternalName,
-				Status:       intf.Status,
-				IpAddress:    intf.IpAddress,
-			})
-		}
-	}
-	p.agentStat = as
+
 	p.publishAgentData()
 	for name, s := range p.pluginStat {
 		p.publishPluginData(infra.PluginName(name), s)
