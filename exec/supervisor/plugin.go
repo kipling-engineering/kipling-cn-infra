@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -87,6 +88,7 @@ func (p *Plugin) Init() error {
 	if p.config == nil || len(p.config.Programs) == 0 {
 		return errors.Errorf("supervisor config file not defined or does not contain any program")
 	}
+	// p.Log.Infof("config read: %v", p.config)
 	p.programs = make(map[string]*processWithStateChan)
 	p.hookEventChan = make(chan *processEvent)
 	p.hookDoneChan = make(chan struct{})
@@ -152,6 +154,14 @@ func (p *Plugin) GetProgramByName(reqName string) pm.ProcessInstance {
 	return nil
 }
 
+func (p *Plugin) postScriptEvent() {
+	p.hookEventChan <- &processEvent{
+		name:      "agent",
+		state:     "running",
+		eventType: StartScriptEvent,
+	}
+}
+
 func (p *Plugin) startPrograms() {
 	for _, program := range p.config.Programs {
 		if err := validate(&program); err != nil {
@@ -164,7 +174,21 @@ func (p *Plugin) startPrograms() {
 		}
 		p.Log.Debugf("program %s started", program.Name)
 	}
+
+	if p.config.StartScript.Path != "" {
+		if p.config.StartScript.Lseconds > 0 {
+			time.AfterFunc(time.Duration(p.config.StartScript.Lseconds)*(time.Second), p.postScriptEvent)
+		}
+	}
 }
+
+// wait 10 sec befor posting event to run primevpp hook
+// time.Sleep(time.Second * 10)
+// p.hookEventChan <- &processEvent{
+// 	name:      "agent",
+// 	state:     "",
+// 	eventType: VPPPrimeReady,
+// }
 
 func (p *Plugin) execute(program *Program) error {
 	if _, ok := p.programs[program.Name]; ok {

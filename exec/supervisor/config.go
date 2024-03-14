@@ -26,8 +26,8 @@ type EventType int
 
 const (
 	// ProcessStatus represents events about process status
-	ProcessStatus EventType = 1
-
+	ProcessStatus    EventType = 1
+	StartScriptEvent           = 2
 	// add more when needed
 )
 
@@ -35,6 +35,8 @@ func (e EventType) String() string {
 	switch e {
 	case ProcessStatus:
 		return "ProcessStatus"
+	case StartScriptEvent:
+		return "StartScriptEvent"
 	default:
 		return fmt.Sprintf("EventType(%d)", e)
 	}
@@ -57,6 +59,14 @@ type Config struct {
 	// A list of hooks managed by supervisor plugin. Hooks are additional commands or scripts
 	// called after some specific process events.
 	Hooks []Hook
+
+	//Kipling Startup Script
+	StartScript Script `json:"startscript"`
+}
+
+type Script struct {
+	Path     string `json:"path"`
+	Lseconds int    `json:"later-seconds"`
 }
 
 // Program is a single program representation
@@ -111,8 +121,9 @@ type Hook struct {
 // NewEmptyConfig prepares empty configuration ready to populate from the file
 func NewEmptyConfig() *Config {
 	return &Config{
-		Programs: []Program{},
-		Hooks:    []Hook{},
+		Programs:    []Program{},
+		Hooks:       []Hook{},
+		StartScript: Script{},
 	}
 }
 

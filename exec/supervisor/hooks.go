@@ -36,22 +36,34 @@ func (p *Plugin) watchEvents() {
 			return
 		}
 
-		// execute all hooks with env vars set
-		for _, hook := range p.config.Hooks {
-			cmd := exec.Command(hook.Cmd, hook.CmdArgs...)
-
-			cmd.Env = append(os.Environ(),
-				fmt.Sprintf("%s=%v", seEventType, processInfo.eventType),
-				fmt.Sprintf("%s=%v", svProcessName, processInfo.name),
-				fmt.Sprintf("%s=%v", svProcessState, processInfo.state),
-			)
-
+		if processInfo.eventType == StartScriptEvent {
+			// just read the kipling script command and execute
+			cmd := exec.Command(p.config.StartScript.Path)
 			out, err := cmd.CombinedOutput()
 			if err != nil {
-				p.Log.Errorf("hook failed: %v", err)
+				p.Log.Errorf("script failed: %v", err)
 			}
 			if len(out) > 0 {
-				p.Log.Debugf("hook output: %s", out)
+				p.Log.Infof("script output: %s", out)
+			}
+		} else {
+			// execute all hooks with env vars set
+			for _, hook := range p.config.Hooks {
+				cmd := exec.Command(hook.Cmd, hook.CmdArgs...)
+
+				cmd.Env = append(os.Environ(),
+					fmt.Sprintf("%s=%v", seEventType, processInfo.eventType),
+					fmt.Sprintf("%s=%v", svProcessName, processInfo.name),
+					fmt.Sprintf("%s=%v", svProcessState, processInfo.state),
+				)
+
+				out, err := cmd.CombinedOutput()
+				if err != nil {
+					p.Log.Errorf("hook failed: %v", err)
+				}
+				if len(out) > 0 {
+					p.Log.Debugf("hook output: %s", out)
+				}
 			}
 		}
 	}
