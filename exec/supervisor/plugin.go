@@ -178,17 +178,11 @@ func (p *Plugin) startPrograms() {
 	if p.config.StartScript.Path != "" {
 		if p.config.StartScript.Lseconds > 0 {
 			time.AfterFunc(time.Duration(p.config.StartScript.Lseconds)*(time.Second), p.postScriptEvent)
+		} else if p.config.StartScript.Lseconds == 0 {
+			p.postScriptEvent()
 		}
 	}
 }
-
-// wait 10 sec befor posting event to run primevpp hook
-// time.Sleep(time.Second * 10)
-// p.hookEventChan <- &processEvent{
-// 	name:      "agent",
-// 	state:     "",
-// 	eventType: VPPPrimeReady,
-// }
 
 func (p *Plugin) execute(program *Program) error {
 	if _, ok := p.programs[program.Name]; ok {

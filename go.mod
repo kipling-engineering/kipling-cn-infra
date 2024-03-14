@@ -57,6 +57,4 @@ require (
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 )
 
-replace (
-	go.ligato.io/cn-infra/v2 => ./
-)
+replace go.ligato.io/cn-infra/v2 => ./
