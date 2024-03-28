@@ -56,8 +56,8 @@ type Plugin struct {
 	// List of callback functions, used in case ETCD is not connected immediately. All plugins using
 	// ETCD as dependency add their own function if cluster is not reachable. After connection, all
 	// functions are executed.
-	onConnection []func() error
-
+	onConnection    []func() error
+	statechangecb   func(updown bool)
 	autoCompactDone chan struct{}
 	lastConnErr     error
 }
@@ -269,6 +269,9 @@ func (p *Plugin) statusCheckProbe() (statuscheck.PluginState, error) {
 	if _, _, _, err := p.connection.GetValue(healthCheckProbeKey); err != nil {
 		p.lastConnErr = err
 		p.connected = false
+		if p.statechangecb != nil {
+			p.statechangecb(p.connected)
+		}
 		return statuscheck.Error, err
 	}
 	if p.config.ReconnectResync && p.lastConnErr != nil {
@@ -280,6 +283,9 @@ func (p *Plugin) statusCheckProbe() (statuscheck.PluginState, error) {
 		}
 	}
 	p.connected = true
+	if p.statechangecb != nil {
+		p.statechangecb(p.connected)
+	}
 	return statuscheck.OK, nil
 }
 
@@ -314,4 +320,8 @@ func (p *Plugin) startPeriodicAutoCompact(period time.Duration) {
 			}
 		}
 	}()
+}
+
+func (p *Plugin) OnStateChange(callback func(updown bool)) {
+	p.statechangecb = callback
 }

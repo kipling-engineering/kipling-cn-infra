@@ -44,7 +44,7 @@ func (p *Plugin) watchEvents() {
 				p.Log.Errorf("script failed: %v", err)
 			}
 			if len(out) > 0 {
-				p.Log.Infof("script output: %s", out)
+				p.Log.Debugf("script output: %s", out)
 			}
 		} else {
 			// execute all hooks with env vars set

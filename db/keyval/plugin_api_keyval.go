@@ -38,6 +38,7 @@ type KvProtoPlugin interface {
 	OnConnect(func() error)
 	// Returns key value store name.
 	String() string
+	OnStateChange(func(updown bool))
 }
 
 // KvBytesPlugin provides unifying interface for different key-value datastore
