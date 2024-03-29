@@ -118,6 +118,9 @@ func (p *Plugin) OnConnect(callback func() error) {
 	}
 }
 
+func (p *Plugin) OnStateChange(func(updown bool)) {
+}
+
 // Close closes Consul plugin.
 func (p *Plugin) Close() error {
 	return nil

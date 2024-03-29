@@ -98,6 +98,10 @@ func (p *Plugin) OnConnect(callback func() error) {
 	}
 }
 
+
+func (p *Plugin) OnStateChange(func(updown bool)) {
+}
+
 // String returns string-representation of plugin name
 func (p *Plugin) String() string {
 	return p.PluginName.String()

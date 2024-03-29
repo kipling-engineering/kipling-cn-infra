@@ -55,6 +55,9 @@ func (p *Plugin) Disabled() bool {
 	return p.disabled
 }
 
+func (p *Plugin) OnStateChange(func(updown bool)) {
+}
+
 // OnConnect executes callback from datasync
 func (p *Plugin) OnConnect(callback func() error) {
 	if err := callback(); err != nil {

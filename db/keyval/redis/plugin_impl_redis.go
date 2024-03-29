@@ -117,6 +117,9 @@ func (p *Plugin) OnConnect(callback func() error) {
 	}
 }
 
+func (p *Plugin) OnStateChange(func(updown bool)) {
+}
+
 func (p *Plugin) getRedisConfig() (cfg interface{}, err error) {
 	found, _ := p.Cfg.LoadValue(&struct{}{})
 	if !found {
