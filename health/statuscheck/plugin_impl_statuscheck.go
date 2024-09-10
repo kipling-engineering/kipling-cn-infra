@@ -219,19 +219,17 @@ func (p *Plugin) reportStateChange(pluginName infra.PluginName, state PluginStat
 	}
 
 	// append host-eth0's status and IP
-	for _, intf := range p.interfaceStat.Interfaces {
+	interfaces := make([]*status.InterfaceStats_Interface, len(p.interfaceStat.Interfaces))
+	for i, intf := range p.interfaceStat.Interfaces {
 		p.Log.Debugf("Appending data for : %s", intf.InternalName)
-		interfaces := []*status.InterfaceStats_Interface{}
-		if intf.InternalName == "host-eth0" {
-			interfaces = append(interfaces, &status.InterfaceStats_Interface{
-				InternalName: intf.InternalName,
-				Status:       intf.Status,
-				IpAddress:    intf.IpAddress,
-			})
-			p.agentStat.InterfaceStats = &status.InterfaceStats{
-				Interfaces: interfaces,
-			}
+		interfaces[i] = &status.InterfaceStats_Interface{
+			InternalName: intf.InternalName,
+			Status:       intf.Status,
+			IpAddress:    intf.IpAddress,
 		}
+	}
+	p.agentStat.InterfaceStats = &status.InterfaceStats{
+		Interfaces: interfaces,
 	}
 	p.ifHasUpdate = false
 	p.publishAgentData()
