@@ -15,6 +15,7 @@
 package etcd
 
 import (
+	"fmt"
 	"time"
 
 	"go.etcd.io/etcd/api/v3/mvccpb"
@@ -256,7 +257,9 @@ func (db *BytesConnectionEtcd) Watch(resp func(keyval.BytesWatchResp), closeChan
 // watchInternal starts the watch subscription for the key.
 func watchInternal(log logging.Logger, watcher clientv3.Watcher, closeCh chan string, prefix string, resp func(keyval.BytesWatchResp)) error {
 	ctx, cancel := context.WithCancel(context.Background())
+	ctx = clientv3.WithRequireLeader(ctx)
 	recvChan := watcher.Watch(ctx, prefix, clientv3.WithPrefix(), clientv3.WithPrevKV())
+	fmt.Printf("Starting to watch prefix %s\n", prefix)
 
 	go func(registeredKey string) {
 		var compactRev int64
