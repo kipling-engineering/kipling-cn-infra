@@ -15,7 +15,6 @@
 package etcd
 
 import (
-	"fmt"
 	"time"
 
 	"go.etcd.io/etcd/api/v3/mvccpb"
@@ -46,7 +45,7 @@ type BytesConnectionEtcd struct {
 // to all keys in its methods in order to shorten keys used in arguments.
 type BytesBrokerWatcherEtcd struct {
 	logging.Logger
-	session   *concurrency.Session
+	session   **concurrency.Session
 	lessor    clientv3.Lease
 	kv        clientv3.KV
 	watcher   clientv3.Watcher
@@ -80,6 +79,26 @@ func NewEtcdConnectionWithBytes(config ClientConfig, log logging.Logger) (*Bytes
 		return nil, err
 	}
 
+	go func() {
+		for {
+			l.Info("Waiting for Etcd session to end...")
+			<-conn.session.Done()
+			l.Warn("Etcd session ended. Trying to create a new one...")
+
+			for {
+				session, err := concurrency.NewSession(etcdClient, concurrency.WithTTL(config.SessionTTL))
+				if err != nil {
+					l.Warnf("Failed to create new session: %v", err)
+					time.Sleep(5 * time.Second)
+				} else {
+					conn.session = session
+					l.Warn("New Etcd session created")
+					break
+				}
+			}
+		}
+	}()
+
 	return conn, nil
 }
 
@@ -112,7 +131,7 @@ func (db *BytesConnectionEtcd) Close() error {
 func (db *BytesConnectionEtcd) NewBroker(prefix string) keyval.BytesBroker {
 	return &BytesBrokerWatcherEtcd{
 		Logger:    db.Logger,
-		session:   db.session,
+		session:   &db.session,
 		kv:        namespace.NewKV(db.etcdClient, prefix),
 		lessor:    db.lessor,
 		opTimeout: db.opTimeout,
@@ -128,7 +147,7 @@ func (db *BytesConnectionEtcd) NewBroker(prefix string) keyval.BytesBroker {
 func (db *BytesConnectionEtcd) NewWatcher(prefix string) keyval.BytesWatcher {
 	return &BytesBrokerWatcherEtcd{
 		Logger:    db.Logger,
-		session:   db.session,
+		session:   &db.session,
 		kv:        namespace.NewKV(db.etcdClient, prefix),
 		lessor:    db.lessor,
 		opTimeout: db.opTimeout,
@@ -139,7 +158,7 @@ func (db *BytesConnectionEtcd) NewWatcher(prefix string) keyval.BytesWatcher {
 // Put calls 'Put' function of the underlying BytesConnectionEtcd.
 // KeyPrefix defined in constructor is prepended to the key argument.
 func (pdb *BytesBrokerWatcherEtcd) Put(key string, data []byte, opts ...datasync.PutOption) error {
-	return putInternal(pdb.Logger, pdb.kv, pdb.lessor, pdb.opTimeout, pdb.session, key, data, opts...)
+	return putInternal(pdb.Logger, pdb.kv, pdb.lessor, pdb.opTimeout, (*pdb.session), key, data, opts...)
 }
 
 // NewTxn creates a new transaction.
@@ -179,13 +198,40 @@ func (pdb *BytesBrokerWatcherEtcd) Delete(key string, opts ...datasync.DelOption
 // list. The prefix is removed from the keys returned in watch events.
 // Watch events will be delivered to <resp> callback.
 func (pdb *BytesBrokerWatcherEtcd) Watch(resp func(keyval.BytesWatchResp), closeChan chan string, keys ...string) error {
+	closingMap := make(map[string]chan string)
 	for _, key := range keys {
-		err := watchInternal(pdb.Logger, pdb.watcher, closeChan, key, resp)
-		if err != nil {
-			return err
+		closingMap[key] = make(chan string)
+		go watchInternal(pdb.Logger, pdb.watcher, closingMap[key], key, resp, pdb.session)
+	}
+
+	go closingChanHandler(pdb.Logger, closeChan, closingMap)
+
+	return nil
+}
+
+func closingChanHandler(log logging.Logger, closeChan chan string, closingMap map[string]chan string) {
+	for {
+		closingKey, closeChanOk := <-closeChan
+		if !closeChanOk {
+			log.WithField("prefix", closingKey).Info("Close signal from the outside")
+			for _, keyCloseChan := range closingMap {
+				close(keyCloseChan)
+			}
+			return
+		}
+		keyCloseChan, ok := closingMap[closingKey]
+		if !ok {
+			log.WithField("prefix", closingKey).Warn("Channel for the key do not exist.")
+			continue
+		}
+		log.WithField("prefix", closingKey).Info("Close signal from the outside")
+		keyCloseChan <- "close"
+		close(keyCloseChan)
+		delete(closingMap, closingKey)
+		if len(closingMap) == 0 {
+			return
 		}
 	}
-	return nil
 }
 
 // PutIfNotExists puts given key-value pair into etcd if there is no value set for the key. If the put was successful
@@ -212,6 +258,9 @@ func (pdb *BytesBrokerWatcherEtcd) CompareAndDelete(key string, data []byte) (su
 
 func handleWatchEvent(log logging.Logger, resp func(keyval.BytesWatchResp), ev *clientv3.Event) {
 	var prevKvValue []byte
+
+	log.WithFields(logging.Fields{"key": string(ev.Kv.Key), "rev": ev.Kv.ModRevision}).Debug("Handling event")
+
 	if ev.PrevKv != nil {
 		prevKvValue = ev.PrevKv.Value
 	}
@@ -245,73 +294,86 @@ func newTxnInternal(kv clientv3.KV) keyval.BytesTxn {
 // to stop go routines from specific subscription, or only goroutine with
 // provided key prefix
 func (db *BytesConnectionEtcd) Watch(resp func(keyval.BytesWatchResp), closeChan chan string, keys ...string) error {
+	closingMap := make(map[string]chan string)
 	for _, key := range keys {
-		err := watchInternal(db.Logger, db.etcdClient, closeChan, key, resp)
-		if err != nil {
-			return err
-		}
+		closingMap[key] = make(chan string)
+		go watchInternal(db.Logger, db.etcdClient.Watcher, closingMap[key], key, resp, &db.session)
 	}
+
+	go closingChanHandler(db.Logger, closeChan, closingMap)
+
 	return nil
 }
 
-// watchInternal starts the watch subscription for the key.
-func watchInternal(log logging.Logger, watcher clientv3.Watcher, closeCh chan string, prefix string, resp func(keyval.BytesWatchResp)) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	ctx = clientv3.WithRequireLeader(ctx)
-	recvChan := watcher.Watch(ctx, prefix, clientv3.WithPrefix(), clientv3.WithPrevKV())
-	fmt.Printf("Starting to watch prefix %s\n", prefix)
+func watchInternal(log logging.Logger, watcher clientv3.Watcher, closeCh chan string, prefix string, resp func(keyval.BytesWatchResp),
+	sess **concurrency.Session) {
+	var compactRev int64
+	for {
+		log.WithField("prefix", prefix).Warn("Starting to watch prefix")
+		ctx, cancel := context.WithCancel(context.Background())
+		ctx = clientv3.WithRequireLeader(ctx)
+		var options []clientv3.OpOption
 
-	go func(registeredKey string) {
-		var compactRev int64
-		for {
-			select {
-			case wresp, ok := <-recvChan:
-				if !ok {
-					log.WithField("prefix", prefix).Warn("Watch recv channel was closed")
-					if compactRev != 0 {
-						recvChan = watcher.Watch(context.Background(), prefix,
-							clientv3.WithPrefix(), clientv3.WithPrevKV(), clientv3.WithRev(compactRev))
-						log.WithFields(logging.Fields{
-							"prefix": prefix,
-							"rev":    compactRev,
-						}).Warn("Watch recv channel was re-created")
-						compactRev = 0
-						continue
-					}
-					return
-				}
-				if wresp.Canceled {
-					log.WithField("prefix", prefix).Warn("Watch was canceled")
-				}
-				err := wresp.Err()
-				if err != nil {
-					log.WithFields(logging.Fields{
-						"prefix": prefix,
-						"err":    err,
-					}).Warn("Watch returned error")
-				}
-				compactRev = wresp.CompactRevision
-				if compactRev != 0 {
-					log.WithFields(logging.Fields{
-						"prefix": prefix,
-						"rev":    compactRev,
-					}).Warn("Watched data were compacted ")
-				}
-				for _, ev := range wresp.Events {
-					handleWatchEvent(log, resp, ev)
-				}
-
-			case closeVal, ok := <-closeCh:
-				if !ok || closeVal == registeredKey {
-					cancel()
-					log.WithField("prefix", prefix).Debug("Watch ended")
-					return
-				}
-			}
+		options = append(options, clientv3.WithPrefix())
+		options = append(options, clientv3.WithPrevKV())
+		if compactRev != 0 {
+			options = append(options, clientv3.WithRev(compactRev))
+			log.WithFields(logging.Fields{"prefix": prefix, "compactRev": compactRev}).Warn("Adding compact revision")
 		}
-	}(prefix)
 
-	return nil
+		recvChan := watcher.Watch(ctx, prefix, options...)
+
+		select {
+		case wresp, ok := <-recvChan:
+			if !ok {
+				log.WithField("prefix", prefix).Warn("Watch recv channel was closed")
+				break
+			}
+
+			if wresp.Canceled {
+				log.WithField("prefix", prefix).Warn("Watch was canceled")
+				break
+			}
+
+			err := wresp.Err()
+			if err != nil {
+				log.WithFields(logging.Fields{"prefix": prefix, "err": err}).Warn("Watch returned error")
+				break
+			}
+
+			compactRev = wresp.CompactRevision
+			if compactRev != 0 {
+				log.WithFields(logging.Fields{"prefix": prefix, "rev": compactRev}).Warn("Watched data were compacted ")
+				break
+			}
+
+			for _, ev := range wresp.Events {
+				handleWatchEvent(log, resp, ev)
+			}
+			log.WithFields(logging.Fields{"prefix": prefix, "rev": compactRev}).Warn("")
+			continue
+
+		case closeVal, ok := <-closeCh:
+			log.WithFields(logging.Fields{"prefix": prefix, "close": closeVal, "ok": ok}).Warn("Watch ended")
+			cancel()
+
+			if ok && closeVal == "restart" {
+				log.WithField("prefix", prefix).Debug("Restarting watch")
+				break
+			}
+			if !ok || closeVal == "close" {
+				log.WithField("prefix", prefix).Debug("Closing watch")
+				return
+			}
+
+		case <-ctx.Done():
+		case <-(*sess).Done():
+			log.WithField("prefix", prefix).Warn("Session or context ended")
+			cancel()
+		}
+
+		time.Sleep(3 * time.Second)
+	}
 }
 
 // Put writes the provided key-value item into the data store.
