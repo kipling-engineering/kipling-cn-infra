@@ -316,9 +316,13 @@ func watchInternal(log logging.Logger, watcher clientv3.Watcher, closeCh chan st
 
 		options = append(options, clientv3.WithPrefix())
 		options = append(options, clientv3.WithPrevKV())
+		options = append(options, clientv3.WithCreatedNotify())
 		if compactRev != 0 {
 			options = append(options, clientv3.WithRev(compactRev))
 			log.WithFields(logging.Fields{"prefix": prefix, "compactRev": compactRev}).Warn("Adding compact revision")
+		} else {
+			options = append(options, clientv3.WithRev(0))
+			log.WithFields(logging.Fields{"prefix": prefix}).Warn("Staring watch from the beginning")
 		}
 
 		recvChan := watcher.Watch(ctx, prefix, options...)
@@ -343,7 +347,7 @@ func watchInternal(log logging.Logger, watcher clientv3.Watcher, closeCh chan st
 
 			compactRev = wresp.CompactRevision
 			if compactRev != 0 {
-				log.WithFields(logging.Fields{"prefix": prefix, "rev": compactRev}).Warn("Watched data were compacted ")
+				log.WithFields(logging.Fields{"prefix": prefix, "rev": compactRev}).Warn("Watched data were compacted")
 				break
 			}
 
