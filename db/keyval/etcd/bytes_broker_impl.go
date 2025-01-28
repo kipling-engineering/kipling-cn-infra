@@ -316,67 +316,82 @@ func watchInternal(log logging.Logger, watcher clientv3.Watcher, closeCh chan st
 
 		options = append(options, clientv3.WithPrefix())
 		options = append(options, clientv3.WithPrevKV())
-		options = append(options, clientv3.WithCreatedNotify())
+		// options = append(options, clientv3.WithCreatedNotify())
 		if compactRev != 0 {
 			options = append(options, clientv3.WithRev(compactRev))
 			log.WithFields(logging.Fields{"prefix": prefix, "compactRev": compactRev}).Warn("Adding compact revision")
 		} else {
 			options = append(options, clientv3.WithRev(0))
-			log.WithFields(logging.Fields{"prefix": prefix}).Warn("Staring watch from the beginning")
+			log.WithFields(logging.Fields{"prefix": prefix}).Warn("Starting from rev 0")
 		}
 
 		recvChan := watcher.Watch(ctx, prefix, options...)
 
-		select {
-		case wresp, ok := <-recvChan:
-			if !ok {
-				log.WithField("prefix", prefix).Warn("Watch recv channel was closed")
+		for {
+			isEnd := false
+
+			select {
+			case wresp, ok := <-recvChan:
+				if !ok {
+					log.WithField("prefix", prefix).Warn("Watch recv channel was closed")
+					isEnd = true
+					break
+				}
+
+				if wresp.Canceled {
+					log.WithField("prefix", prefix).Warn("Watch was canceled")
+					isEnd = true
+					break
+				}
+
+				err := wresp.Err()
+				if err != nil {
+					log.WithFields(logging.Fields{"prefix": prefix, "err": err}).Warn("Watch returned error")
+					isEnd = true
+					break
+				}
+
+				compactRev = wresp.CompactRevision
+				if compactRev != 0 {
+					log.WithFields(logging.Fields{"prefix": prefix, "compactRev": compactRev}).Warn("Watched data were compacted ")
+					isEnd = true
+					break
+				}
+
+				log.WithFields(logging.Fields{"prefix": prefix}).Debugf("Response: %+v", wresp)
+				for _, ev := range wresp.Events {
+					handleWatchEvent(log, resp, ev)
+				}
+				log.WithFields(logging.Fields{"prefix": prefix, "compactRev": compactRev}).Debug("Continuing...")
+				continue
+
+			case closeVal, ok := <-closeCh:
+				log.WithFields(logging.Fields{"prefix": prefix, "close": closeVal, "ok": ok}).Warn("Watch ended")
+				cancel()
+				isEnd = true
+
+				if ok && closeVal == "restart" {
+					log.WithField("prefix", prefix).Debug("Restarting watch")
+					break
+				}
+				if !ok || closeVal == "close" {
+					log.WithField("prefix", prefix).Debug("Closing watch")
+					return
+				}
+
+			case <-ctx.Done():
+			case <-(*sess).Done():
+				log.WithField("prefix", prefix).Warn("Session or context ended")
+				cancel()
+				isEnd = true
+			}
+
+			if isEnd {
+				time.Sleep(3 * time.Second)
 				break
 			}
-
-			if wresp.Canceled {
-				log.WithField("prefix", prefix).Warn("Watch was canceled")
-				break
-			}
-
-			err := wresp.Err()
-			if err != nil {
-				log.WithFields(logging.Fields{"prefix": prefix, "err": err}).Warn("Watch returned error")
-				break
-			}
-
-			compactRev = wresp.CompactRevision
-			if compactRev != 0 {
-				log.WithFields(logging.Fields{"prefix": prefix, "rev": compactRev}).Warn("Watched data were compacted")
-				break
-			}
-
-			for _, ev := range wresp.Events {
-				handleWatchEvent(log, resp, ev)
-			}
-			log.WithFields(logging.Fields{"prefix": prefix, "rev": compactRev}).Warn("")
-			continue
-
-		case closeVal, ok := <-closeCh:
-			log.WithFields(logging.Fields{"prefix": prefix, "close": closeVal, "ok": ok}).Warn("Watch ended")
-			cancel()
-
-			if ok && closeVal == "restart" {
-				log.WithField("prefix", prefix).Debug("Restarting watch")
-				break
-			}
-			if !ok || closeVal == "close" {
-				log.WithField("prefix", prefix).Debug("Closing watch")
-				return
-			}
-
-		case <-ctx.Done():
-		case <-(*sess).Done():
-			log.WithField("prefix", prefix).Warn("Session or context ended")
-			cancel()
 		}
 
-		time.Sleep(3 * time.Second)
 	}
 }
 
