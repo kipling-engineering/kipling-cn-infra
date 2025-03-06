@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/pkg/errors"
 
@@ -154,15 +153,30 @@ func (p *Plugin) GetProgramByName(reqName string) pm.ProcessInstance {
 	return nil
 }
 
-func (p *Plugin) postScriptEvent() {
-	p.hookEventChan <- &processEvent{
-		name:      "agent",
-		state:     "running",
-		eventType: StartScriptEvent,
-	}
-}
+// func (p *Plugin) postScriptEvent() {
+// 	p.hookEventChan <- &processEvent{
+// 		name:      "agent",
+// 		state:     "running",
+// 		eventType: StartScriptEvent,
+// 	}
+// }
 
 func (p *Plugin) startPrograms() {
+	// run the startscript firt if define
+	if p.config.StartScript.Path != "" {
+		p.Log.Debugf("starting script %s", p.config.StartScript.Path)
+		// just read the kipling script command and execute
+		cmd := exec.Command(p.config.StartScript.Path)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			p.Log.Errorf("start script at %s failed with %v", p.config.StartScript.Path, err)
+			return
+		}
+		if len(out) > 0 {
+			p.Log.Infof("startup script output: %s", out)
+		}
+	}
+
 	for _, program := range p.config.Programs {
 		if err := validate(&program); err != nil {
 			p.Log.Errorf("cannot start program %s: %v", program.Name, err)
@@ -175,13 +189,13 @@ func (p *Plugin) startPrograms() {
 		p.Log.Debugf("program %s started", program.Name)
 	}
 
-	if p.config.StartScript.Path != "" {
-		if p.config.StartScript.Lseconds > 0 {
-			time.AfterFunc(time.Duration(p.config.StartScript.Lseconds)*(time.Second), p.postScriptEvent)
-		} else if p.config.StartScript.Lseconds == 0 {
-			p.postScriptEvent()
-		}
-	}
+	// if p.config.StartScript.Path != "" {
+	// 	if p.config.StartScript.Lseconds > 0 {
+	// 		time.AfterFunc(time.Duration(p.config.StartScript.Lseconds)*(time.Second), p.postScriptEvent)
+	// 	} else if p.config.StartScript.Lseconds == 0 {
+	// 		p.postScriptEvent()
+	// 	}
+	// }
 }
 
 func (p *Plugin) execute(program *Program) error {
