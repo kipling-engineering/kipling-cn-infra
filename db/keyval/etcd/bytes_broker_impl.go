@@ -329,6 +329,13 @@ func watchInternal(log logging.Logger, watcher clientv3.Watcher, closeCh chan st
 
 		for {
 			isEnd := false
+			// protect against nil session ptr (needed for unit test mocks)
+			var session_done <-chan struct{}
+			if sess != nil {
+				if *sess != nil {
+					session_done = (*sess).Done()
+				}
+			}
 
 			select {
 			case wresp, ok := <-recvChan:
@@ -380,7 +387,7 @@ func watchInternal(log logging.Logger, watcher clientv3.Watcher, closeCh chan st
 				}
 
 			case <-ctx.Done():
-			case <-(*sess).Done():
+			case <-session_done:
 				log.WithField("prefix", prefix).Warn("Session or context ended")
 				cancel()
 				isEnd = true
